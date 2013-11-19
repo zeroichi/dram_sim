@@ -1,4 +1,5 @@
 
+#include <iostream>
 #include "model.h"
 
 // =======================================================================================
@@ -18,15 +19,22 @@ mem_req_t::mem_req_t( int rw, unsigned int addr, int length )
 // class composite
 
 void composite::cycle1() {
-    for( std::vector<element*>::iterator it=children.begin(); it!=children.end(); ++it ) {
+    for( std::vector<element*>::iterator it=elements.begin(); it!=elements.end(); ++it ) {
         (*it)->cycle1();
     }
 }
 
 void composite::cycle2() {
-    for( std::vector<element*>::iterator it=children.begin(); it!=children.end(); ++it ) {
+    for( std::vector<element*>::iterator it=elements.begin(); it!=elements.end(); ++it ) {
         (*it)->cycle2();
     }
+}
+
+void composite::delete_elements() {
+    for( std::vector<element*>::iterator it=elements.begin(); it!=elements.end(); ++it ) {
+        delete *it;
+    }
+    elements.clear();
 }
 
 // =======================================================================================
@@ -45,5 +53,7 @@ void channel::cycle1() {
 }
 
 void channel::cycle2() {
-    output.data = input.data;
+    std::cout << "channel: cycle2()" << std::endl;
+    input.data = output.data;
+    output.data.valid = false;
 }

@@ -8,7 +8,7 @@
 // メモリ読み書きリクエスト
 class mem_req_t {
 public:
-    int valid;
+    bool valid;
     int rw; // 0:read, 1:write
     unsigned int addr;
     int length;
@@ -40,7 +40,8 @@ public:
 // 複合シミュレーション要素
 class composite : public element {
 public:
-    std::vector<element*> children;
+    std::vector<element*> elements;
+    void delete_elements();
     void cycle1();
     void cycle2();
 };
