@@ -158,7 +158,7 @@ bool dram_t::is_issuable( const cmd_t& command ) const {
     const int bankid = command.bank;
     const int state = bank[bankid].state;
     if( cmd == CMD_ACTIVATE ) {
-        if( state == S_IDLE ) {
+        if( state == S_IDLE && cRRD==0 ) {
             return true;
         } else {
             return false;
@@ -296,6 +296,7 @@ void dram_controller::cycle1() {
     // 注意: 1サイクルで発行できるコマンドは1個!
     for( int bankid=0; bankid<dram.nbanks; ++bankid ) {
         if( bankq[bankid].size() > 0 ) {
+            cout << "bankq[" << bankid << "].size = " << bankq[bankid].size() << endl;
             dram_t::bank_t &b = dram.bank[bankid];
             dram_req_t &req = bankq[bankid][0];
             cmd_t cmd;
@@ -311,7 +312,8 @@ void dram_controller::cycle1() {
                 cmd.cmd = CMD_PRE;
             }
             // コマンドを発行できるかチェック
-            if( dram.is_issuable( cmd ) ) {
+            if( cmd.cmd!=CMD_NOP && dram.is_issuable( cmd ) ) {
+                //cout << "dramc: issue - " << cmd << endl;
                 dram.cmd = cmd;
                 if( cmd.cmd == CMD_READ ) {
                     schedules.push_back( schedule_t( 0, dram.tCAS+dram.burst/2, req ) );

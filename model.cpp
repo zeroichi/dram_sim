@@ -2,6 +2,8 @@
 #include <iostream>
 #include "model.h"
 
+using namespace std;
+
 // =======================================================================================
 // class mem_req_t
 
@@ -14,6 +16,13 @@ mem_req_t::mem_req_t( int rw, unsigned int addr, int length )
     : valid(true), rw(rw), addr(addr), length(length), count(0), err(0)
 {
 }
+
+std::ostream& operator <<( std::ostream& os, const mem_req_t& obj ) {
+    os << "[mem_req_t rw=" << dec << obj.rw << ", addr=0x" << hex << obj.addr
+       << ", len=" << dec << hex << ", err=" << obj.err << "]";
+    return os;
+}
+
 
 // =======================================================================================
 // class composite

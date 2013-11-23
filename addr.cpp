@@ -51,6 +51,9 @@ void addr_part::info() {
     cout << dec << endl;
 }
 
+unsigned int addr_part::get_mask() {
+    return mask;
+}
 
 //////////////////////////////////////////////////////////
 

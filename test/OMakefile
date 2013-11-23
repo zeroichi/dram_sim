@@ -63,11 +63,13 @@
 # 
 # .DEFAULT: $(CProgram $(MAIN), $(CFILES))
 
-.DEFAULT: proctest dramtest
+.DEFAULT: proctest dramtest cachetest
 
 CXXProgram( proctest, proctest ../model ../proc )
 
 CXXProgram( dramtest, dramtest ../model ../proc ../dram ../addr )
+
+CXXProgram( cachetest, cachetest ../model ../proc ../dram ../addr ../cache )
 
 ################################################
 # Uncomment the following section if you want to build a C library

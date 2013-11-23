@@ -13,6 +13,7 @@ public:
     void set( unsigned int *addr, unsigned int part );
     void shift( int delta );
     void info();
+    unsigned int get_mask();
 private:
     int bits;
     int lsb_start;

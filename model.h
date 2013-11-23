@@ -4,6 +4,7 @@
 #define __MODEL_H__
 
 #include <vector>
+#include <iostream>
 
 // メモリ読み書きリクエスト
 class mem_req_t {
@@ -18,6 +19,9 @@ public:
     mem_req_t();
     mem_req_t( int rw, unsigned int addr, int length );
 };
+
+std::ostream& operator <<( std::ostream& os, const mem_req_t& obj );
+
 
 // 単方向入出力ポート
 class port {
