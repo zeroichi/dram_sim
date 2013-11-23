@@ -25,6 +25,7 @@ cache::cache( int nrows, int nsets, int linesize ) : nrows(nrows), nsets(nsets),
     addr_row = addr_part( needed_bits(nrows), lsb, "row" );
     lsb += needed_bits( nrows );
     addr_tag = addr_part( sizeof(unsigned int)*8 - lsb, lsb, "tag" );
+    cout << "cache: [info] nrows=" << nrows << ", nsets=" << nsets << ", linesize=" << linesize << endl;
 }
 
 cache::~cache() {

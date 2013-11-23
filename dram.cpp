@@ -112,6 +112,8 @@ dram_t::dram_t()
     nrows  = 8192;
     nbanks = 8;
     burst  = 8;
+    cout << "dram: [info] bus_width="<<width<<"b, ncols="<<ncols<<", nrows="<<nrows<<", nbanks="<<nbanks<<", burst_len="<<burst<<endl;
+    cout << "dram: [info] page_size="<<width*ncols/8<<" B, total="<<width*ncols*nrows*nbanks/8<<" B"<<endl;
 
     // アドレス計算フィルタを初期化
     const int burst_bits = needed_bits(burst);
@@ -164,7 +166,7 @@ bool dram_t::is_issuable( const cmd_t& command ) const {
             return false;
         }
     } else if ( cmd == CMD_PRE ) {
-        if( state == S_ACTIVE || state == S_READ || state == S_WRITE
+        if( ( state == S_ACTIVE || state == S_READ || state == S_WRITE )
             && bank[bankid].cRAS == 0 ) {
             return true;
         } else {
@@ -304,12 +306,14 @@ void dram_controller::cycle1() {
             if( b.state == S_IDLE ) {
                 cmd.cmd = CMD_ACTIVATE;
                 cmd.bank = bankid;
+                cmd.addr = req.row;
             } else if( b.state == S_ACTIVE && b.row == req.row ) {
                 cmd.cmd = CMD_READ;
                 cmd.bank = bankid;
                 cmd.addr = req.col;
             } else if( b.state == S_ACTIVE && b.row != req.row ) {
                 cmd.cmd = CMD_PRE;
+                cmd.bank = bankid;
             }
             // コマンドを発行できるかチェック
             if( cmd.cmd!=CMD_NOP && dram.is_issuable( cmd ) ) {
