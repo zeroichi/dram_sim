@@ -12,6 +12,8 @@ public:
     int rw; // 0:read, 1:write
     unsigned int addr;
     int length;
+    int count;
+    int err;
 
     mem_req_t();
     mem_req_t( int rw, unsigned int addr, int length );

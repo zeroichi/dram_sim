@@ -9,6 +9,11 @@ using namespace std;
 #define S_IDLE 0
 #define S_ACTIVE 1
 
+addr_part::addr_part()
+    : bits(0), lsb_start(0), mask(0u), name("")
+{
+}
+
 addr_part::addr_part( int bits, int lsb_start, string name )
     : bits( bits ), lsb_start( lsb_start ), name( name )
 {

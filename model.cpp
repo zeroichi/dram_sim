@@ -6,12 +6,12 @@
 // class mem_req_t
 
 mem_req_t::mem_req_t()
-    : valid(false), rw(0), addr(0), length(0)
+    : valid(false), rw(0), addr(0), length(0), count(0), err(0)
 {
 }
 
 mem_req_t::mem_req_t( int rw, unsigned int addr, int length )
-    : valid(true), rw(rw), addr(addr), length(length)
+    : valid(true), rw(rw), addr(addr), length(length), count(0), err(0)
 {
 }
 
@@ -53,7 +53,7 @@ void channel::cycle1() {
 }
 
 void channel::cycle2() {
-    std::cout << "channel: cycle2()" << std::endl;
+    //std::cout << "channel: cycle2()" << std::endl;
     input.data = output.data;
     output.data.valid = false;
 }
