@@ -9,7 +9,7 @@ using namespace std;
 const char * const state_string_table[] = {
     "NULL",
     "IDLE",
-    "ACTIVATING",
+    "ACTING",
     "ACTIVE",
     "WRITE",
     "READ",
@@ -18,6 +18,13 @@ const char * const state_string_table[] = {
     "PRE"
 };
 
+static const char * state_to_s( const int state ) {
+    const int table_size = sizeof(state_string_table)/sizeof(*state_string_table);
+    if( state < 0 || table_size <= state ) {
+        return "(invalid)";
+    }
+    return state_string_table[state];
+}
 
 // =======================================================================================
 // class dram_t::bank_t
@@ -54,50 +61,35 @@ void dram_t::bank_t::do_update() {
 }
 
 void dram_t::bank_t::do_command() {
-    if( parent->cmd.bank == id ) {
-        if( !parent->is_issuable( parent->cmd ) ) {
-            cout << "err: invalid - not issuable " << parent->cmd << endl;
-        }
-        int cmd = parent->cmd.cmd;
-        if( cmd == CMD_ACTIVATE ) {
-            if( state == S_IDLE ) {
-                state = S_ACTIVATING;
-                cRCD = parent->tRCD;
-                cRAS = parent->tRAS;
-                parent->cRRD = parent->tRRD;
-                row = parent->cmd.addr;
-            } else {
-                throw "err: cmd==ACTIVATE but state!=IDLE";
-            }
-        } else if ( cmd == CMD_PRE ) {
-            if( ( state == S_ACTIVE || state == S_READ || state == S_WRITE )
-                && cRAS == 0 ) {
-                state = S_PRE;
-                cRP = parent->tRP;
-            } else {
-                throw "err: cmd==PRE but state!=ACTIVE,READ,WRITE";
-            }
-        } else if ( cmd == CMD_READ ) {
-            if( state == S_ACTIVE && parent->cCCD == 0 ) {
-                state = S_READ;
-                parent->cCCD = parent->tCCD;
-                cCAS = parent->tCAS;
-            } else {
-                throw "err: cmd==READ, conditions not met";
-            }
-        } else if ( cmd == CMD_WRITE ) {
-            if( state==S_ACTIVE && parent->cCCD==0 ) {
-                state = S_WRITE;
-                parent->cCCD = parent->tCCD;
-                cCAS = parent->tCAS;
-            } else {
-                throw "err: cmd==WRITE, conditions not met";
-            }
-        }
+    // コマンド発行可能な状態かチェック
+    if( !parent->is_issuable( parent->cmd ) ) {
+        cout << "dram: [ERR] not issuable - " << parent->cmd << endl;
+        return;
     }
-
-    // debug
-    //printf( "bank[%d] state=%s cRCD=%d cCAS=%d cRAS=%d cRP=%d\n", id, state_string_table[state], cRCD, cCAS, cRAS, cRP );
+    if( parent->cmd.bank != id ) {
+        // コントローラが対象バンクに対してしかdo_command()を呼び出さないので
+        // ここは通らないはず
+        return;
+    }
+    const int &cmd = parent->cmd.cmd;
+    if( cmd == CMD_ACTIVATE ) {
+        state = S_ACTIVATING;
+        cRCD = parent->tRCD;
+        cRAS = parent->tRAS;
+        parent->cRRD = parent->tRRD;
+        row = parent->cmd.addr;
+    } else if ( cmd == CMD_PRE ) {
+        state = S_PRE;
+        cRP = parent->tRP;
+    } else if ( cmd == CMD_READ ) {
+        state = S_READ;
+        parent->cCCD = parent->tCCD;
+        cCAS = parent->tCAS;
+    } else if ( cmd == CMD_WRITE ) {
+        state = S_WRITE;
+        parent->cCCD = parent->tCCD;
+        cCAS = parent->tCAS;
+    }
 }
 
 
@@ -298,7 +290,7 @@ void dram_controller::cycle1() {
     // 注意: 1サイクルで発行できるコマンドは1個!
     for( int bankid=0; bankid<dram.nbanks; ++bankid ) {
         if( bankq[bankid].size() > 0 ) {
-            cout << "bankq[" << bankid << "].size = " << bankq[bankid].size() << endl;
+            //cout << "bankq[" << bankid << "].size = " << bankq[bankid].size() << endl;
             dram_t::bank_t &b = dram.bank[bankid];
             dram_req_t &req = bankq[bankid][0];
             cmd_t cmd;
@@ -345,7 +337,7 @@ void dram_controller::cycle1() {
     printf( "dram: cRRD=%d, cCCD=%d\n", dram.cRRD, dram.cCCD );
     for( int bankid=0; bankid<dram.nbanks; ++bankid ) {
         dram_t::bank_t& b = dram.bank[bankid];
-        printf( "bank[%d]: state=%-10s, cRCD=%d cCAS=%d, cRAS=%2d, cRP=%d\n", bankid, state_string_table[b.state], b.cRCD, b.cCAS, b.cRAS, b.cRP );
+        printf( "bank[%d]: state=%-6s, cRCD=%d cCAS=%d, cRAS=%2d, cRP=%d\n", bankid, state_to_s(b.state), b.cRCD, b.cCAS, b.cRAS, b.cRP );
     }
 }
 
