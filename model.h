@@ -9,12 +9,12 @@
 // メモリ読み書きリクエスト
 class mem_req_t {
 public:
-    bool valid;
-    int rw; // 0:read, 1:write
-    unsigned int addr;
-    int length;
-    int count;
-    int err;
+    bool valid;        // 有効なリクエストかどうかを表す．ポートの値が有効か？など．
+    int rw;            // 0:read, 1:write
+    unsigned int addr; // アドレス
+    int length;        // 長さ(Bytes)
+    int count;         // 参照カウント
+    int err;           // リクエスト結果．正常終了は0, エラーは0以外の値
 
     mem_req_t();
     mem_req_t( int rw, unsigned int addr, int length );

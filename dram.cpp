@@ -2,6 +2,7 @@
 #include <new>
 #include <iostream>
 #include <cstdio>
+#include <bitset>
 #include "dram.h"
 
 using namespace std;
@@ -38,6 +39,7 @@ dram_t::bank_t::bank_t( dram_t *parent, int id ) {
     cRCD = cCAS = cRAS = cRP = cRFC = 0;
     this->parent = parent;
     this->id = id;
+    row = 0;
 }
 
 void dram_t::bank_t::do_update() {
@@ -212,8 +214,12 @@ void dram_t::do_command() {
 // =======================================================================================
 // class dram_req_t
 
-dram_req_t::dram_req_t( int rw, int bankid, int row, int col, mem_req_t* from )
-    : rw(rw), bank(bankid), row(row), col(col), from(from)
+//dram_req_t::dram_req_t( int rw, int bankid, int row, int col, mem_req_t* from )
+//    : rw(rw), bank(bankid), row(row), col(col), from(from)
+//{
+//}
+dram_req_t::dram_req_t( int rw, int bankid, int row, int col )
+    : rw(rw), bank(bankid), row(row), col(col)
 {
 }
 
@@ -229,8 +235,17 @@ schedule_t::schedule_t( int type, int count, dram_req_t& req )
 // class dram_controller
 
 // constructor
-dram_controller::dram_controller() {
+dram_controller::dram_controller()
+    : waitq( 64 )
+{
+    align_mask = ~(dram.width * dram.burst / 8 - 1);
+    cout << "dramc: [debug] align_mask=" << bitset<32>(align_mask) << endl;
+    bankq = new vector<bank_req_t>[dram.nbanks];
+    cout << "dramc: [debug] nbanks=" << dram.nbanks << ", bankq=" << (void*)bankq << endl;
+}
 
+dram_controller::~dram_controller() {
+    delete[] bankq;
 }
 
 void dram_controller::cycle1() {
@@ -239,96 +254,103 @@ void dram_controller::cycle1() {
 
     // ポートにリクエストが来ているか確認
     if( port.in.data.valid ) {
-        printf( "dram_controller: request came\n" );
-        printf( "rw=%d addr=0x%x length=%d\n", port.in.data.rw, port.in.data.addr, port.in.data.length );
-        // 終了待ち行列に入れる
-        queue.push_back( port.in.data );
-        mem_req_t &req = queue[queue.size()-1];
-        unsigned int &addr = port.in.data.addr;
-        printf( "=> row=%u, col=%u, bank=%u\n",
-                dram.row_addr.get(addr), dram.col_addr.get(addr), dram.bank_addr.get(addr) );
-        // アラインメントチェック
-        if( ( addr & (dram.width * dram.burst / 8 - 1) ) != 0 ) {
-            printf( "controller: ERR invalid alignment\n" );
-            port.out.data = port.in.data;
-            port.out.data.err = 1;
-            queue.pop_back();
-        } else {
-            for( unsigned int offset=0; offset<req.length; offset+=(dram.width*dram.burst/8) ) {
-                unsigned int a = addr + offset;
-                int bankid = dram.bank_addr.get(a);
-                // push a request into a bank queue
-                bankq[bankid].push_back( dram_req_t( req.rw, bankid, dram.row_addr.get(a), dram.col_addr.get(a), &req ) );
-                req.count++;
-                cout << "req.count = " << req.count << endl;
-                printf("push into a bank queue. bankid=%d row=%d col=%d\n", bankid, dram.row_addr.get(a), dram.col_addr.get(a) );
-            }
+        printf( "dramc: [debug] request came\n" );
+        printf( "       rw=%d addr=0x%x length=%d\n", port.in.data.rw, port.in.data.addr, port.in.data.length );
+        // '対コントローラ'リクエストキューに入れる
+        request_t newreq;
+        newreq.original  = port.in.data;
+        newreq.addr      = newreq.original.addr & align_mask;
+        newreq.required  = 1;
+        newreq.requested = 0;
+        newreq.count     = 0;
+        // 全部で何回のDRAMコマンド発行が必要になるかを数える
+        while( newreq.addr + newreq.required * ( dram.width * dram.burst / 8 ) < newreq.original.addr + newreq.original.length ) {
+            newreq.required++;
         }
+        reqq.push_back( newreq );
+        cout << "dramc: [debug] request queued - addr=" << (void*)newreq.addr << ", required=" << newreq.required << endl;
     }
 
-    for( vector<schedule_t>::iterator it=schedules.begin(); it!=schedules.end(); ) {
-        (*it).count -= 1;
-        cout << "count " << dec << (*it).count << endl;
-        if( (*it).count == 0 ) {
-            (*it).req.from->count -= 1;
-            cout<<"req.count = "<<(*it).req.from->count<<endl;
-            it = schedules.erase( it );
+    // '対コントローラ'リクエストを処理
+    for( deque<request_t>::iterator it=reqq.begin(); it!=reqq.end(); ) {
+        cout << dec << "dramc: [debug] required=" << (*it).required << ", requested=" << (*it).requested << ", count=" << (*it).count << endl;
+        if( (*it).required == (*it).count ) {
+            // 完了済み => 出力
+            if( !port.out.data.valid ) {
+                port.out.data = it->original;
+                port.out.data.err = 0;
+                // todo: キューから削除
+                it=reqq.erase(it);
+            } else {
+                ++it;
+            }
         } else {
+            // バンクに対する要求
+            for( int i=(*it).requested; i<(*it).required; ++i ) {
+                // i は何回目のコマンド発行かを表す
+                unsigned int addr = (*it).addr + i * dram.width * dram.burst / 8;
+                int bankid = dram.bank_addr(addr);
+                if( bankq[bankid].size() != 0 ) break; // バンクキューが空でない
+                //bankq[bankid].push_back( dram_req_t( (*it).original.rw, bankid, dram.row_addr(addr), dram.col_addr(addr), 
+                bankq[bankid].push_back( bank_req_t( dram.row_addr(addr), dram.col_addr(addr), (*it).original.rw, &(*it).count ) );
+                (*it).requested++;
+            }
             ++it;
         }
     }
 
-    for( deque<mem_req_t>::iterator it=queue.begin(); it!=queue.end(); ++it ) {
-        if( (*it).count == 0 ) {
-            port.out.data = *it;
-            queue.erase( it );
-            break;
-        }
-    }
-
-    // バンク・リクエスト・キューに基づいてDRAMにコマンドを発行する
-    // 注意: 1サイクルで発行できるコマンドは1個!
-    for( int bankid=0; bankid<dram.nbanks; ++bankid ) {
-        if( bankq[bankid].size() > 0 ) {
-            //cout << "bankq[" << bankid << "].size = " << bankq[bankid].size() << endl;
-            dram_t::bank_t &b = dram.bank[bankid];
-            dram_req_t &req = bankq[bankid][0];
+    // '対バンク'リクエストを処理
+    for( int i=0; i<dram.nbanks; ++i ) {
+        if( bankq[i].size() >= 1 ) {
+            dram_t::bank_t &b = dram.bank[i];
+            bank_req_t &req = bankq[i][0];
             cmd_t cmd;
             // アクティブか？
             if( b.state == S_IDLE ) {
                 cmd.cmd = CMD_ACTIVATE;
-                cmd.bank = bankid;
+                cmd.bank = i;
                 cmd.addr = req.row;
-            } else if( b.state == S_ACTIVE && b.row == req.row ) {
-                cmd.cmd = CMD_READ;
-                cmd.bank = bankid;
-                cmd.addr = req.col;
-            } else if( b.state == S_ACTIVE && b.row != req.row ) {
-                cmd.cmd = CMD_PRE;
-                cmd.bank = bankid;
+            } else if( b.state == S_ACTIVE ) {
+                if( b.row == req.row ) {
+                    cmd.cmd = CMD_READ;
+                    cmd.bank = i;
+                    cmd.addr = req.col;
+                } else {
+                    cmd.cmd = CMD_PRE;
+                    cmd.bank = i;
+                }
             }
             // コマンドを発行できるかチェック
             if( cmd.cmd!=CMD_NOP && dram.is_issuable( cmd ) ) {
                 //cout << "dramc: issue - " << cmd << endl;
                 dram.cmd = cmd;
                 if( cmd.cmd == CMD_READ ) {
-                    schedules.push_back( schedule_t( 0, dram.tCAS+dram.burst/2, req ) );
-                    cout << "bank " << bankid << ": " << cmd << endl;
-                    cout << "  data transfer will be completed in " << dec << dram.tCAS+dram.burst/2 << " cycles" << endl;
-                    bankq[bankid].pop_front();
+                    // tCAS + バースト長/2 サイクル後に読み込み完了
+                    int needed_cycles = dram.tCAS + dram.burst / 2;
+                    //waitq.push_back( wait_t( 1, needed_cycles, req.counter ) );
+                    waitq[needed_cycles].type = 1;
+                    waitq[needed_cycles].counter = req.counter;
+                    bankq[i].pop_back();
+                    cout << "bank[" << i << "]: scheduled, cycles=" << needed_cycles << " cmd=" << cmd << endl;
+                    //schedules.push_back( schedule_t( 0, dram.tCAS+dram.burst/2, req ) );
+                    //waits.push_back( wait_t( dram.tCAS+dram.burst/2, (int*)0/* todo */ ) );
+                    //cout << "bank " << i << ": " << cmd << endl;
+                    //cout << "  data transfer will be completed in " << dec << dram.tCAS+dram.burst/2 << " cycles" << endl;
+                    //bankq[i].pop_front();
                 }
                 break;
             }
-        } else {
-            // バンクに対するリクエストがない場合はプリチャージを試みる
-            /*
-            cmd_t cmd( CMD_PRE, bankid, 0 );
-            if( dram.is_issuable( cmd ) ) {
-                dram.cmd = cmd;
-            }
-            */
         }
     }
+
+    // 処理待ちリングバッファの処理
+    if( waitq[0].type != 0 ) {
+        cout << "dramc: [debug] waitq[0].type=" << waitq[0].type << endl;
+        (*waitq[0].counter)++;
+    }
+    waitq.pop_front();
+    waitq.push_back( wait_t() );
+    //cout << "dramc: [debug] waitq.size=" << waitq.size() << endl;
 
     // dram のコマンド処理
     dram.do_command();
@@ -337,11 +359,26 @@ void dram_controller::cycle1() {
     printf( "dram: cRRD=%d, cCCD=%d\n", dram.cRRD, dram.cCCD );
     for( int bankid=0; bankid<dram.nbanks; ++bankid ) {
         dram_t::bank_t& b = dram.bank[bankid];
-        printf( "bank[%d]: state=%-6s, cRCD=%d cCAS=%d, cRAS=%2d, cRP=%d\n", bankid, state_to_s(b.state), b.cRCD, b.cCAS, b.cRAS, b.cRP );
+        printf( "bank[%d]: state=%-6s cRCD=%d cCAS=%d cRAS=%2d cRP=%d row=%d\n", bankid, state_to_s(b.state), b.cRCD, b.cCAS, b.cRAS, b.cRP, b.row );
     }
 }
 
 void dram_controller::cycle2() {
+}
+
+dram_controller::bank_req_t::bank_req_t( int row, int col, int rw, int *counter )
+    : row(row), col(col), rw(rw), counter(counter)
+{
+}
+
+dram_controller::wait_t::wait_t()
+    : type(0), counter(NULL)
+{
+}
+
+dram_controller::wait_t::wait_t( int type, int *counter )
+    : type(type), counter(counter)
+{
 }
 
 // =======================================================================================
@@ -374,5 +411,31 @@ void cmd_t::print() const {
 std::ostream& operator <<( std::ostream& os, const cmd_t& value ) {
     value.print();
     return os;
+}
+
+// =======================================================================================
+// class gather_controller
+
+gather_controller::gather_controller()
+    : ncmds(8), maxsize(1024)
+{
+}
+
+void gather_controller::cycle() {
+    for( int i=0; i<queue.size(); ++i ) {
+        if( queue[i].status == GS_INDEX ) {
+            for( int j=queue[i].done_count; j<queue[i].length; ++j ) {
+                unsigned int addr = queue[i].index_addr + queue[i].data_size * j; // 要求するアドレス
+                int bankid = dram->bank_addr.get(addr); // 上のアドレスに対応するバンク番号
+                if( 0 < dramc->bankq[bankid].size() ) {
+                    // the bank is busy, give up
+                    break;
+                }
+                // read コマンド発行準備
+                //dram_req_t req( 0, bankid, dram->row_addr.get(addr), dram->col_addr.get(addr), 
+                //              NULL /* TODO: mem_req_t ? */ );
+            }
+        }
+    }
 }
 

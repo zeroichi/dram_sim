@@ -3,6 +3,7 @@
 #ifndef __DRAM_H__
 #define __DRAM_H__
 
+#include <vector>
 #include <deque>
 #include "addr.h"
 #include "model.h"
@@ -101,9 +102,10 @@ public:
     int bank;
     int row;
     int col;
-    mem_req_t *from; // 元になっているリクエスト
+    //mem_req_t *from; // 元になっているリクエスト
 
-    dram_req_t( int rw, int bankid, int row, int col, mem_req_t* from );
+    //dram_req_t( int rw, int bankid, int row, int col, mem_req_t* from );
+    dram_req_t( int rw, int bankid, int row, int col );
 };
 
 // コマンドを発行し，読み込み・書き込みの完了待ちを表す
@@ -119,16 +121,93 @@ public:
 // メモリコントローラ
 class dram_controller : public element {
 public:
-    dram_controller();
-    dram_t dram;
-    std::deque<mem_req_t> queue;
-    std::deque<dram_req_t> bankq[8];
-    full_duplex_port port;
-    std::vector<schedule_t> schedules;
+    // 内部で使用する型の宣言
+    struct request_t { // 対コントローラ・リクエスト
+        mem_req_t original;
+        unsigned int addr; // アラインメント済みアドレス
+        int required; // 必要な r/w コマンド発行回数
+        int requested; // 発行済みコマンド数
+        int count; // r/w 完了コマンド数 (wait_t.target でポイントされる)
+    };
+    struct bank_req_t { // 対バンク・リクエスト
+        int row; // 行番号
+        int col; // 列番号
+        int rw; // Read=0 or Write=1
+        int *counter; // リクエスト処理完了時にカウントアップされる変数へのポインタ
 
-    // from class 'element'
+        bank_req_t( int row, int col, int rw, int *counter );
+    };
+    struct wait_t {
+        int type; // 通知タイプ
+        int *counter; // タイムアウト時にカウントアップする変数へのポインタ
+
+        wait_t();
+        wait_t( int type, int *counter );
+    };
+
+    dram_t dram; // DRAM 本体
+    full_duplex_port port; // キャッシュメモリ・プロセッサと通信するためのポート
+    unsigned int align_mask; // メモリアドレスアラインメント用
+
+    std::deque<request_t> reqq; // プロセッサからのリクエストキュー
+    std::vector<bank_req_t>* bankq; // 対バンク・リクエストキュー(配列)
+    std::deque<wait_t> waitq; // 処理待ちキュー <= 常に要素数が一定のリングバッファ
+
+    dram_controller();
+    ~dram_controller();
+    // override methods from abstract class 'element'
     void cycle1();
     void cycle2();
+};
+
+enum gather_command {
+    GCMD_VL,
+    GCMD_VLS,
+    GCMD_VLI,
+    GCMD_VLPI,
+    GCMD_VS,
+    GCMD_VSS,
+    GCMD_VSI,
+    GCMD_VSPI,
+};
+
+// Gatherコマンド
+class gather_cmd_t {
+public:
+    // プロセッサから指定されるパラメータ群
+    int cmd; // コマンド名
+    unsigned int array_addr; // データ配列開始アドレス
+    unsigned int index_addr; // インデックス配列開始アドレス
+    int data_size; // 要素型のサイズ
+    int length; // Gatherする要素数
+    int buffer_id; // 読み書きするバッファ番号
+
+    // Gatherシステム内部で使用する変数
+    bool valid; // 有効要素かどうか
+    int status; // 進行状態を表すステータス
+    int done_count; // どこまで終わったか
+};
+
+enum gather_status {
+    GS_NULL, // 無効
+    GS_INDEX, // インデックスを読み込んでいる段階
+    GS_GATHER, // Gather を行っている段階
+    GS_DONE, // 処理完了
+};
+
+// Gatherコントローラ
+class gather_controller {
+public:
+    // パラメータ
+    int ncmds; // 同時発行可能Gatherコマンド数
+    int maxsize; // Gather可能最大要素数
+
+    dram_t *dram;
+    dram_controller *dramc;
+    std::deque<gather_cmd_t> queue; // コマンドキュー
+
+    gather_controller();
+    void cycle();
 };
 
 #endif

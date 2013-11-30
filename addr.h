@@ -14,6 +14,7 @@ public:
     void shift( int delta );
     void info();
     unsigned int get_mask();
+    unsigned int operator() ( unsigned int addr );
 private:
     int bits;
     int lsb_start;

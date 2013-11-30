@@ -25,6 +25,10 @@ unsigned int addr_part::get( unsigned int addr ) {
     return ( addr & mask ) >> lsb_start;
 }
 
+unsigned int addr_part::operator() ( unsigned int addr ) {
+    return get(addr);
+}
+
 void addr_part::set( unsigned int *addr, unsigned int part ) {
     // clear bits
     *addr &= !mask;
